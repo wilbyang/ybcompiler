@@ -160,7 +160,7 @@
             </div>
             <div>
                 <label for="flags">Additional Flags:</label>
-                <input type="text" id="flags" placeholder="-O2 -Wall" onchange="updateCompilerOptions()">
+                <input type="text" id="flags" placeholder="-O2 -Wall" onchange="updateCompilerOptions()" oninput="updateCompilerOptions()">
             </div>
         </div>
     </div>
@@ -215,17 +215,36 @@
             
             // Update output options based on compiler
             const outputSelect = document.getElementById('output');
+            const currentOutput = outputSelect.value;
             outputSelect.innerHTML = '';
             
             if (compiler === 'javac') {
                 outputSelect.appendChild(new Option('Bytecode', 'bytecode'));
                 outputSelect.appendChild(new Option('Verbose', 'verbose'));
+                // Set default output for Java if current output is not compatible
+                if (currentOutput !== 'bytecode' && currentOutput !== 'verbose') {
+                    outputSelect.value = 'bytecode';
+                } else {
+                    outputSelect.value = currentOutput;
+                }
             } else {
                 outputSelect.appendChild(new Option('LLVM IR', 'llvm-ir'));
                 outputSelect.appendChild(new Option('Assembly', 'asm'));
+                // Set default output for C if current output is not compatible
+                if (currentOutput !== 'llvm-ir' && currentOutput !== 'asm') {
+                    outputSelect.value = 'llvm-ir';
+                } else {
+                    outputSelect.value = currentOutput;
+                }
             }
             
-            currentOptions = { compiler, output, flags };
+            currentOptions = {
+                compiler,
+                output: outputSelect.value,
+                flags
+            };
+            
+            console.log('Sending updated compiler options:', currentOptions);
             
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
@@ -261,15 +280,18 @@
 
             // Show compiler options and set initial values based on file type
             const ext = filename.toLowerCase().split('.').pop();
-            document.querySelector('.compiler-options').classList.remove('hidden');
+            const compilerOptionsDiv = document.querySelector('.compiler-options');
+            compilerOptionsDiv.classList.remove('hidden');
             
+            // Set initial compiler and output format based on file type
+            const compilerSelect = document.getElementById('compiler');
             if (ext === 'java') {
-                document.getElementById('compiler').value = 'javac';
-                document.getElementById('output').value = 'bytecode';
+                compilerSelect.value = 'javac';
             } else {
-                document.getElementById('compiler').value = 'clang';
-                document.getElementById('output').value = 'llvm-ir';
+                compilerSelect.value = 'clang';
             }
+            
+            // Trigger initial compiler options update
             updateCompilerOptions();
 
             ws = new WebSocket(`ws://${window.location.host}/ws?file=${encodeURIComponent(filename)}`);
