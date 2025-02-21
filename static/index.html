@@ -92,6 +92,38 @@
             border-radius: 4px;
             border: 1px solid #e9ecef;
         }
+        .compiler-options {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+            border: 1px solid #e9ecef;
+        }
+        
+        .options-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 10px;
+        }
+        
+        .options-grid > div {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        select, input[type="text"] {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        select:focus, input[type="text"]:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
     </style>
 </head>
 <body>
@@ -105,6 +137,34 @@
         <button onclick="compareVersions()" id="compareButton" disabled>Compare Versions</button>
         <button onclick="clearVersions()" id="clearButton" disabled>Clear All</button>
     </div>
+
+    <div class="compiler-options hidden">
+        <h3>Compiler Options</h3>
+        <div class="options-grid">
+            <div>
+                <label for="compiler">Compiler:</label>
+                <select id="compiler" onchange="updateCompilerOptions()">
+                    <option value="clang">Clang</option>
+                    <option value="gcc">GCC</option>
+                    <option value="javac">Java</option>
+                </select>
+            </div>
+            <div>
+                <label for="output">Output Format:</label>
+                <select id="output" onchange="updateCompilerOptions()">
+                    <option value="llvm-ir">LLVM IR</option>
+                    <option value="asm">Assembly</option>
+                    <option value="bytecode">Bytecode (Java)</option>
+                    <option value="verbose">Verbose (Java)</option>
+                </select>
+            </div>
+            <div>
+                <label for="flags">Additional Flags:</label>
+                <input type="text" id="flags" placeholder="-O2 -Wall" onchange="updateCompilerOptions()">
+            </div>
+        </div>
+    </div>
+
     <div id="status" class="status"></div>
     
     <div class="comparison">
@@ -142,15 +202,46 @@
         let ws;
         let versions = [];
         let currentResult = null;
+        let currentOptions = {
+            compiler: "clang",
+            output: "llvm-ir",
+            flags: []
+        };
         
-        function getLanguageDisplay(lang) {
-            switch(lang) {
-                case 'c': return 'C/LLVM IR';
-                case 'java': return 'Java/JVM Bytecode';
-                default: return 'Unknown';
+        function updateCompilerOptions() {
+            const compiler = document.getElementById('compiler').value;
+            const output = document.getElementById('output').value;
+            const flags = document.getElementById('flags').value.split(' ').filter(f => f.trim());
+            
+            // Update output options based on compiler
+            const outputSelect = document.getElementById('output');
+            outputSelect.innerHTML = '';
+            
+            if (compiler === 'javac') {
+                outputSelect.appendChild(new Option('Bytecode', 'bytecode'));
+                outputSelect.appendChild(new Option('Verbose', 'verbose'));
+            } else {
+                outputSelect.appendChild(new Option('LLVM IR', 'llvm-ir'));
+                outputSelect.appendChild(new Option('Assembly', 'asm'));
+            }
+            
+            currentOptions = { compiler, output, flags };
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    options: currentOptions
+                }));
             }
         }
         
+        function getLanguageDisplay(lang) {
+            switch(lang) {
+                case 'c': return currentOptions.output === 'asm' ? 'C/Assembly' : 'C/LLVM IR';
+                case 'java': return 'Java/' + (currentOptions.output === 'verbose' ? 'Verbose Bytecode' : 'JVM Bytecode');
+                default: return 'Unknown';
+            }
+        }
+
         function setStatus(message, isError = false) {
             const statusDiv = document.getElementById('status');
             statusDiv.textContent = message;
@@ -168,10 +259,27 @@
                 return;
             }
 
+            // Show compiler options and set initial values based on file type
+            const ext = filename.toLowerCase().split('.').pop();
+            document.querySelector('.compiler-options').classList.remove('hidden');
+            
+            if (ext === 'java') {
+                document.getElementById('compiler').value = 'javac';
+                document.getElementById('output').value = 'bytecode';
+            } else {
+                document.getElementById('compiler').value = 'clang';
+                document.getElementById('output').value = 'llvm-ir';
+            }
+            updateCompilerOptions();
+
             ws = new WebSocket(`ws://${window.location.host}/ws?file=${encodeURIComponent(filename)}`);
             
             ws.onopen = function() {
                 setStatus(`Connected and watching ${filename}`);
+                // Send initial compiler options
+                ws.send(JSON.stringify({
+                    options: currentOptions
+                }));
             };
 
             ws.onmessage = function(event) {

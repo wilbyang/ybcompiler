@@ -23,6 +23,16 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+type CompilerOptions struct {
+	Compiler string   `json:"compiler"` // "clang", "gcc", "javac"
+	Output   string   `json:"output"`   // "llvm-ir", "asm", "bytecode"
+	Flags    []string `json:"flags"`    // Additional compiler flags
+}
+
+type CompileRequest struct {
+	Options CompilerOptions `json:"options"`
+}
+
 type CompileResponse struct {
 	Success    bool   `json:"success"`
 	Output     string `json:"output"`
@@ -82,7 +92,7 @@ func (fw *FileWatcher) RemoveClient(filename string, conn *websocket.Conn) {
 	}
 }
 
-func (fw *FileWatcher) compileJava(filename, sourceCode string) (string, error) {
+func (fw *FileWatcher) compileJava(filename, sourceCode string, options CompilerOptions) (string, error) {
 	tmpDir, err := os.MkdirTemp("", "java-compile-*")
 	if err != nil {
 		return "", err
@@ -96,7 +106,8 @@ func (fw *FileWatcher) compileJava(filename, sourceCode string) (string, error) 
 	}
 
 	// Compile Java file
-	cmd := exec.Command("javac", srcFile)
+	args := append([]string{srcFile}, options.Flags...)
+	cmd := exec.Command("javac", args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("compilation failed: %s", output)
 	}
@@ -104,8 +115,17 @@ func (fw *FileWatcher) compileJava(filename, sourceCode string) (string, error) 
 	// Get class name (remove .java extension)
 	className := filename[:len(filename)-5]
 
-	// Use javap to get bytecode
-	cmd = exec.Command("javap", "-c", "-p", "-v", filepath.Join(tmpDir, className))
+	// Use javap with appropriate flags
+	javapArgs := []string{"-p"} // Always show private members
+	switch options.Output {
+	case "bytecode":
+		javapArgs = append(javapArgs, "-c") // Show bytecode
+	case "verbose":
+		javapArgs = append(javapArgs, "-v") // Show verbose output
+	}
+	javapArgs = append(javapArgs, filepath.Join(tmpDir, className))
+
+	cmd = exec.Command("javap", javapArgs...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("failed to get bytecode: %s", output)
@@ -114,8 +134,8 @@ func (fw *FileWatcher) compileJava(filename, sourceCode string) (string, error) 
 	return string(output), nil
 }
 
-func (fw *FileWatcher) compileC(filename, sourceCode string) (string, error) {
-	tmpDir, err := os.MkdirTemp("", "clang-compile-*")
+func (fw *FileWatcher) compileC(filename, sourceCode string, options CompilerOptions) (string, error) {
+	tmpDir, err := os.MkdirTemp("", "c-compile-*")
 	if err != nil {
 		return "", err
 	}
@@ -127,26 +147,36 @@ func (fw *FileWatcher) compileC(filename, sourceCode string) (string, error) {
 		return "", err
 	}
 
-	// Generate output file path
-	llFileName := filename[:len(filename)-2] + ".ll" // Remove .c and add .ll
-	llvmFile := filepath.Join(tmpDir, llFileName)
+	var cmd *exec.Cmd
+	var outputFile string
 
-	// Run clang command
-	cmd := exec.Command("clang", "-S", "-emit-llvm", srcFile, "-o", llvmFile)
+	switch options.Output {
+	case "llvm-ir":
+		outputFile = filepath.Join(tmpDir, filename[:len(filename)-2]+".ll")
+		args := append([]string{"-S", "-emit-llvm", srcFile, "-o", outputFile}, options.Flags...)
+		cmd = exec.Command(options.Compiler, args...)
+	case "asm":
+		outputFile = filepath.Join(tmpDir, filename[:len(filename)-2]+".s")
+		args := append([]string{"-S", srcFile, "-o", outputFile}, options.Flags...)
+		cmd = exec.Command(options.Compiler, args...)
+	default:
+		return "", fmt.Errorf("unsupported output format: %s", options.Output)
+	}
+
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("compilation failed: %s", output)
 	}
 
-	// Read the generated LLVM IR
-	llvmIR, err := os.ReadFile(llvmFile)
+	// Read the generated output
+	result, err := os.ReadFile(outputFile)
 	if err != nil {
-		return "", fmt.Errorf("failed to read LLVM IR: %v", err)
+		return "", fmt.Errorf("failed to read output file: %v", err)
 	}
 
-	return string(llvmIR), nil
+	return string(result), nil
 }
 
-func (fw *FileWatcher) compileAndNotify(filename string) {
+func (fw *FileWatcher) compileAndNotify(filename string, options CompilerOptions) {
 	fullPath := filepath.Join(fw.sourceDir, filename)
 
 	// Read source code
@@ -161,13 +191,29 @@ func (fw *FileWatcher) compileAndNotify(filename string) {
 	var language string
 	var output string
 
+	// Set default options if not specified
+	if options.Compiler == "" {
+		switch ext {
+		case ".c":
+			options.Compiler = "clang"
+			if options.Output == "" {
+				options.Output = "llvm-ir"
+			}
+		case ".java":
+			options.Compiler = "javac"
+			if options.Output == "" {
+				options.Output = "bytecode"
+			}
+		}
+	}
+
 	switch ext {
 	case ".c":
 		language = "c"
-		output, err = fw.compileC(filename, string(sourceCode))
+		output, err = fw.compileC(filename, string(sourceCode), options)
 	case ".java":
 		language = "java"
-		output, err = fw.compileJava(filename, string(sourceCode))
+		output, err = fw.compileJava(filename, string(sourceCode), options)
 	default:
 		fw.notifyClients(filename, "", "Unsupported file type: "+ext, string(sourceCode), "")
 		return
@@ -211,7 +257,7 @@ func (fw *FileWatcher) Start() {
 			}
 			if event.Op&fsnotify.Write == fsnotify.Write {
 				filename := filepath.Base(event.Name)
-				fw.compileAndNotify(filename)
+				fw.compileAndNotify(filename, CompilerOptions{})
 			}
 		case err, ok := <-fw.watcher.Errors:
 			if !ok {
@@ -247,15 +293,24 @@ func handleWebSocket(fw *FileWatcher, w http.ResponseWriter, r *http.Request) {
 	fw.AddClient(filename, conn)
 	defer fw.RemoveClient(filename, conn)
 
-	// Do initial compilation
-	fw.compileAndNotify(filename)
+	// Default compiler options
+	options := CompilerOptions{}
 
-	// Keep connection alive until client disconnects
+	// Do initial compilation
+	fw.compileAndNotify(filename, options)
+
+	// Handle incoming messages for compiler options updates
 	for {
-		_, _, err := conn.ReadMessage()
-		if err != nil {
+		var req CompileRequest
+		if err := conn.ReadJSON(&req); err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("WebSocket error: %v", err)
+			}
 			break
 		}
+
+		// Update compilation with new options
+		fw.compileAndNotify(filename, req.Options)
 	}
 }
 

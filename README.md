@@ -1,42 +1,61 @@
 # IR Code Watcher
 
-A real-time compiler output visualization tool that helps developers understand how their source code translates to intermediate representations (IR). Currently supports:
-- C → LLVM IR
-- Java → JVM Bytecode
+A real-time compiler output visualization tool that helps developers understand how their source code translates to intermediate representations (IR) and assembly. Currently supports:
+- C → LLVM IR / Assembly (via Clang or GCC)
+- Java → JVM Bytecode (normal or verbose output)
 
 ## Value Proposition
 
 This tool is particularly valuable for:
 
 1. **Education**
-   - Learn how high-level code translates to IR
-   - Understand compiler optimizations
-   - Study differences between language implementations
+   - Learn how high-level code translates to IR or assembly
+   - Understand compiler optimizations and their effects
+   - Study differences between compiler implementations
+   - Compare output between different optimization levels
 
 2. **Development**
    - Debug complex performance issues
-   - Optimize code by understanding the IR
+   - Optimize code by understanding the IR/assembly output
    - Compare different implementations side-by-side
+   - Experiment with compiler flags and optimizations
 
 3. **Research**
-   - Analyze compiler behavior
-   - Study code transformations
-   - Compare different versions of code and their IR
+   - Analyze compiler behavior with different flags
+   - Study code transformations across compiler versions
+   - Compare different compilation strategies
+   - Investigate optimization effects
 
 ## Features
 
-- **Real-time Compilation**: Watch files for changes and see IR updates instantly
-- **Multi-language Support**: C and Java support with extensible architecture
-- **Side-by-side Comparison**: Compare different versions of code and their IR
-- **Diff View**: Highlight changes between versions in both source and IR
-- **Web Interface**: Easy-to-use browser-based interface
-- **Syntax Highlighting**: Clear visualization of code and IR
+- **Real-time Compilation**: Watch files for changes and see IR/assembly updates instantly
+- **Configurable Compilation**:
+  - Choose between different compilers (Clang/GCC for C)
+  - Select output format (LLVM IR/Assembly for C, Bytecode/Verbose for Java)
+  - Customize compiler flags (e.g., optimization levels, warnings)
+- **Multi-language Support**: 
+  - C with LLVM IR or assembly output
+  - Java with bytecode or verbose class file information
+- **Version Management**:
+  - Capture and compare different versions of code
+  - Side-by-side diff view for both source and output
+  - Timestamp tracking for version history
+- **Rich Comparison Tools**:
+  - Highlight changes between versions in source code
+  - Show differences in IR/assembly output
+  - Compare outputs with different compiler settings
+- **Modern Web Interface**:
+  - Real-time updates via WebSocket
+  - Syntax-highlighted output
+  - Responsive design for better readability
 
 ## Prerequisites
 
 - Go 1.24 or later
-- LLVM/Clang for C compilation
-- JDK (Java Development Kit) for Java compilation
+- One or more of the following compilers:
+  - LLVM/Clang for C (LLVM IR output)
+  - GCC for C (assembly output)
+  - JDK for Java (bytecode output)
 - Modern web browser
 
 ## Installation
@@ -57,8 +76,9 @@ go mod download
 # Check Go version
 go version
 
-# Check Clang installation
+# Check C compilers
 clang --version
+gcc --version
 
 # Check Java installation
 javac -version
@@ -87,11 +107,11 @@ echo 'public class Example { public static void main(String[] args) { System.out
 ```
 
 4. In the web interface:
-   - Enter the filename to watch (e.g., "example.c" or "Example.java")
-   - Click "Watch File"
-   - Make changes to your source file and see IR updates in real-time
-   - Use "Capture Current Version" to save snapshots
-   - Compare different versions using the comparison view
+   - Enter the filename to watch
+   - Select your preferred compiler and output format
+   - Add any compiler flags (e.g., -O2 for optimization)
+   - Watch real-time updates as you modify the file
+   - Capture versions to compare different implementations or compiler settings
 
 ## Command Line Options
 
@@ -103,34 +123,46 @@ echo 'public class Example { public static void main(String[] args) { System.out
 The system consists of three main components:
 
 1. **File Watcher**: Monitors source files for changes using fsnotify
-2. **Compiler Bridge**: Interfaces with different compilers (Clang, javac)
+2. **Compiler Bridge**: 
+   - Manages multiple compiler configurations
+   - Handles different output formats
+   - Processes compiler flags
 3. **WebSocket Server**: Provides real-time updates to the web interface
 
 ## Development
 
-To extend the system with new language support:
+To extend the system with new features:
 
-1. Add a new compilation function in `main.go`
-2. Update the language detection in `compileAndNotify`
-3. Add appropriate frontend display logic in `index.html`
+1. Add new compiler support:
+   - Implement compilation function in `main.go`
+   - Update language detection in `compileAndNotify`
+   - Add compiler options in frontend
+
+2. Add new output formats:
+   - Update CompilerOptions struct
+   - Implement format-specific compilation logic
+   - Add UI support in frontend
 
 ## Limitations
 
 - Only supports single-file compilation
 - Requires local installation of compilers
-- Limited to LLVM IR and JVM bytecode output formats
+- Limited to specific output formats
 - No support for complex build configurations
+- Memory limited by browser for large diffs
 
 ## Contributing
 
 Contributions are welcome! Some areas for improvement:
 
-- Additional language support
-- More IR output formats
+- Additional compiler support
+- More output formats
 - Build system integration
-- Syntax highlighting for IR code
-- Configuration options for compiler flags
-- Support for multi-file projects
+- Syntax highlighting for different outputs
+- Persistent version history
+- Multi-file project support
+- Compiler optimization visualization
+- Performance analysis tools
 
 ## License
 
@@ -139,5 +171,6 @@ MIT License - See LICENSE file for details
 ## Acknowledgments
 
 - LLVM/Clang project
+- GCC project
 - OpenJDK tools
 - fsnotify and gorilla/websocket Go packages 
